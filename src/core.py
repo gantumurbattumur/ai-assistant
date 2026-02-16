@@ -123,17 +123,40 @@ def get_web_search_tool():
 
 # ========== Retriever Setup ==========
 
-def create_vectorstore():
+def create_vectorstore(force_rebuild: bool = False):
     """
-    Load documents, split them, and create a vectorstore with retriever
+    Load or create a persistent vectorstore
     
+    Args:
+        force_rebuild: If True, rebuild the index from scratch
+        
     Returns:
         retriever: Vector store retriever
     """
     from src.ingest.loaders import load_all_books
     
-    print("Loading books...")
+    # Persistent storage location
+    project_root = Path(__file__).parent.parent
+    persist_dir = project_root / "chroma_db"
+    
+    # Check if index already exists
+    if persist_dir.exists() and not force_rebuild:
+        print("Loading existing vectorstore...")
+        vectorstore = Chroma(
+            collection_name="rag-chroma",
+            embedding_function=OpenAIEmbeddings(),
+            persist_directory=str(persist_dir)
+        )
+        print(f"✅ Loaded {vectorstore._collection.count()} existing chunks")
+        return vectorstore.as_retriever()
+    
+    # Build from scratch
+    print("Building vectorstore from documents...")
     docs = load_all_books()
+    
+    if not docs:
+        raise ValueError("No documents found. Add PDF/EPUB files to data/books/")
+    
     print(f"Loaded {len(docs)} documents")
     
     # Split documents into chunks
@@ -146,12 +169,15 @@ def create_vectorstore():
         [doc.page_content for sublist in docs for doc in sublist]
     )
     print(f"Split into {len(doc_splits)} chunks")
+    print("Generating embeddings (this may take a minute)...")
     
-    # Create vectorstore
+    # Create persistent vectorstore
     vectorstore = Chroma.from_documents(
         documents=doc_splits,
         collection_name="rag-chroma",
         embedding=OpenAIEmbeddings(),
+        persist_directory=str(persist_dir)
     )
     
+    print(f"✅ Vectorstore saved to {persist_dir}")
     return vectorstore.as_retriever()

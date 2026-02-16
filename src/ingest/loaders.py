@@ -1,19 +1,22 @@
-from langchain_community.document_loaders import PyMuPDFLoader
-from pprint import pprint
+"""Document loaders for PDF and EPUB files"""
+import os
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
+from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_core.documents import Document
 
 FILE_PATH = "data/books/"
 
-# Load a single PDF file 
+
 def load_pdf(file_name):
+    """Load a single PDF file and return list of documents"""
     loader = PyMuPDFLoader(FILE_PATH + file_name)
     return loader.load()
 
-# Load a single EPUB file (simple implementation without heavy dependencies)
+
 def load_epub(file_name):
+    """Load a single EPUB file and return list of documents"""
     book = epub.read_epub(FILE_PATH + file_name)
     documents = []
     
@@ -30,28 +33,21 @@ def load_epub(file_name):
     
     return documents
 
-# Load multiple PDF files and return a list of documents
-def load_files(file_names):
-    documents = []
-    for file_name in file_names:
-        documents.append(load_pdf(file_name))
-    return documents
 
-# Load multiple EPUB files and return a list of documents
-def load_epub_files(file_names):
-    documents = []
-    for file_name in file_names:
-        documents.append(load_epub(file_name))
-    return documents
-
-# Load all books (pdf, epub) from the data/books directory and return a list of documents
 def load_all_books():
-    import os
+    """Load all PDF and EPUB files from data/books directory"""
     documents = []
+    
+    if not os.path.exists(FILE_PATH):
+        print(f"Warning: Books directory not found at {FILE_PATH}")
+        return []
+    
     for file_name in os.listdir(FILE_PATH):
         if file_name.endswith(".pdf"):
             documents.append(load_pdf(file_name))
         elif file_name.endswith(".epub"):
             documents.append(load_epub(file_name))
+    
     return documents
+
 

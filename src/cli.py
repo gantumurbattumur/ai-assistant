@@ -5,13 +5,42 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+# Get version from package metadata
+try:
+    from importlib.metadata import version
+    __version__ = version("ai-assistant")
+except Exception:
+    __version__ = "0.1.0"
+
 app_cli = typer.Typer(
     name="ai",
-    help="Your personal AI assistant",
+    help="🤖 Your personal AI assistant",
     add_completion=False,
     no_args_is_help=True,
 )
 console = Console()
+
+
+def version_callback(value: bool):
+    """Show version and exit"""
+    if value:
+        console.print(f"[bold cyan]🤖 AI Assistant[/] version [green]{__version__}[/]")
+        raise typer.Exit()
+
+
+@app_cli.callback()
+def main(
+    version: bool = typer.Option(
+        None,
+        "--version",
+        "-V",
+        help="Show version and exit",
+        callback=version_callback,
+        is_eager=True,
+    )
+):
+    """AI Assistant - Your personal AI helper"""
+    pass
 
 
 # ================================================================
@@ -19,8 +48,6 @@ console = Console()
 # ================================================================
 rag_cli = typer.Typer(help="Ask questions about your books (RAG)")
 app_cli.add_typer(rag_cli, name="rag")
-
-
 @rag_cli.command("ask")
 def rag_ask(
     question: str = typer.Argument(..., help="Your question about books"),
@@ -77,6 +104,59 @@ def rag_ask(
             border_style="green",
             padding=(1, 2),
         ))
+
+
+@rag_cli.command("rebuild")
+def rebuild_index():
+    """🔄 Rebuild the vector index from scratch"""
+    from src.core import setup_environment, create_vectorstore
+    
+    setup_environment()
+    
+    if typer.confirm("⚠️  This will delete and rebuild the entire index. Continue?"):
+        with console.status("[bold yellow]Rebuilding index..."):
+            create_vectorstore(force_rebuild=True)
+        console.print("[green]✅ Index rebuilt successfully![/]")
+    else:
+        console.print("[yellow]Cancelled[/]")
+
+
+@rag_cli.command("status")
+def index_status():
+    """📊 Show vector index statistics"""
+    from pathlib import Path
+    from src.core import setup_environment
+    
+    setup_environment()
+    
+    project_root = Path(__file__).parent.parent
+    persist_dir = project_root / "chroma_db"
+    
+    if not persist_dir.exists():
+        console.print("[yellow]⚠️  No index found. Run 'ai rag ask <question>' to create one.[/]")
+        return
+    
+    from langchain_community.vectorstores import Chroma
+    from langchain_openai import OpenAIEmbeddings
+    
+    with console.status("[bold cyan]Loading index..."):
+        vectorstore = Chroma(
+            collection_name="rag-chroma",
+            embedding_function=OpenAIEmbeddings(),
+            persist_directory=str(persist_dir)
+        )
+        
+        count = vectorstore._collection.count()
+        size_mb = sum(f.stat().st_size for f in persist_dir.rglob("*") if f.is_file()) / (1024 * 1024)
+    
+    console.print(Panel(
+        f"[bold]Index Location:[/] {persist_dir}\n"
+        f"[bold]Total Chunks:[/] {count:,}\n"
+        f"[bold]Disk Size:[/] {size_mb:.2f} MB\n"
+        f"[bold]Status:[/] [green]Ready ✅[/]",
+        title="[bold cyan]📊 Vector Index Status[/]",
+        border_style="cyan"
+    ))
 
 
 # ================================================================
@@ -158,7 +238,7 @@ def joke():
             data = resp.json()
             console.print(Panel(
                 f"[bold yellow]{data['setup']}[/]\n\n[green]{data['punchline']}[/]",
-                title="[bold]😂 Joke[/]",
+                title="[bold] Joke[/]",
                 border_style="yellow",
             ))
         except Exception:
@@ -196,7 +276,7 @@ def summarize(
             console.print(f"[red]Failed to fetch URL: {e}[/]")
             raise typer.Exit(1)
 
-    console.print(Panel("[bold blue]📝 Summarizing...[/]", border_style="blue"))
+    console.print(Panel("[bold blue] Summarizing...[/]", border_style="blue"))
 
     with console.status("[bold green]Generating summary..."):
         llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
@@ -225,7 +305,7 @@ def translate(
     text: str = typer.Argument(..., help="Text to translate"),
     to: str = typer.Option("English", "--to", "-t", help="Target language"),
 ):
-    """🌍 Translate text to another language"""
+    """Translate text to another language"""
     from src.core import setup_environment
     from langchain_openai import ChatOpenAI
     from langchain_core.prompts import ChatPromptTemplate
@@ -250,7 +330,7 @@ def translate(
 
     console.print(Panel(
         response.content,
-        title=f"[bold green]🌍 {to}[/]",
+        title=f"[bold green]{to}[/]",
         border_style="green",
         padding=(1, 2),
     ))
@@ -265,17 +345,20 @@ def info():
     import sys
 
     console.print(Panel(
-        f"[bold cyan]🤖 AI Assistant[/] v0.1.0\n\n"
+        f"[bold cyan]🤖 AI Assistant[/] v{__version__}\n\n"
         f"  Python:   {sys.version.split()[0]}\n"
         f"  Platform: {sys.platform}\n\n"
         f"[bold]Available Commands:[/]\n\n"
         f"  [cyan]ai ask[/]  [dim]\"..\"[/]           💬 Quick LLM question\n"
         f"  [cyan]ai rag ask[/]  [dim]\"..\"[/]       📚 Ask about your books (RAG)\n"
+        f"  [cyan]ai rag status[/]           📊 Show index statistics\n"
+        f"  [cyan]ai rag rebuild[/]          🔄 Rebuild vector index\n"
         f"  [cyan]ai search[/]  [dim]\"..\"[/]        🔍 Search the web\n"
         f"  [cyan]ai joke[/]                😂 Get a random joke\n"
         f"  [cyan]ai summarize[/]  [dim]\"..\"[/]     📝 Summarize text or URL\n"
         f"  [cyan]ai translate[/]  [dim]\"..\"[/]     🌍 Translate text\n"
-        f"  [cyan]ai info[/]                ℹ️  This screen\n",
+        f"  [cyan]ai info[/]                ℹ️  This screen\n"
+        f"  [cyan]ai --version[/]           📦 Show version\n",
         title="[bold blue]ℹ️  System Info[/]",
         border_style="blue",
     ))

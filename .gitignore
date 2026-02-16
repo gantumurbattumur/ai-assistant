@@ -42,6 +42,7 @@ data/
 *.db
 *.sqlite
 chroma/
+chroma_db/
 
 # Jupyter
 .ipynb_checkpoints/
