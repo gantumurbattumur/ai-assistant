@@ -11,14 +11,9 @@ advanced-rag/
 │       ├── loaders.py          # Document loaders for PDF and EPUB
 │       └── chunking.py         # Text chunking utilities
 ├── src/
-│   ├── config.py               # Environment configuration
-│   ├── state.py                # Graph state definition
-│   ├── chains.py               # LLM chains (grader, generator, rewriter)
-│   ├── tools.py                # External tools (web search)
-│   ├── retriever.py            # Vector store and retriever setup
-│   └── graph/
-│       ├── nodes.py            # LangGraph node functions
-│       └── app.py              # Graph compilation and workflow
+│   ├── __init__.py
+│   ├── core.py                 # Chains, tools, config, state (all-in-one)
+│   └── graph.py                # Graph nodes and workflow compilation
 ├── data/
 │   └── books/                  # Book files (PDF, EPUB)
 ├── main.ipynb                  # Jupyter notebook for experimentation
@@ -26,6 +21,10 @@ advanced-rag/
 ├── pyproject.toml              # Project dependencies
 └── README.md
 ```
+
+**Just 2 main files in `src/`:**
+- **`core.py`**: Configuration, state, chains, tools, and retriever setup
+- **`graph.py`**: LangGraph nodes and workflow compilation
 
 ## 🚀 Features
 
@@ -72,14 +71,16 @@ jupyter notebook main.ipynb
 ### Programmatic usage:
 
 ```python
-from src.config import setup_environment
-from src.graph.app import app
+from src.core import setup_environment
+from src.graph import create_graph
 
 # Setup environment
 setup_environment()
 
-# Run query
+# Create and run the graph
+app = create_graph()
 inputs = {"question": "What is the future of AI Engineering?"}
+
 for output in app.stream(inputs):
     print(output)
 ```

@@ -1,4 +1,4 @@
-from app.ingest.loaders import load_all_books
+from src.ingest.loaders import load_all_books
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 

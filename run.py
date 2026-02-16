@@ -1,13 +1,16 @@
 """Main entry point for the Advanced RAG system"""
 from pprint import pprint
-from src.config import setup_environment
-from src.graph.app import app
+from src.core import setup_environment
+from src.graph import create_graph
 
 
 def main():
     """Run the Advanced RAG system"""
     # Setup environment variables
     setup_environment()
+    
+    # Create the graph
+    app = create_graph()
     
     # Run the workflow
     inputs = {"question": "What is the future of AI Engineering?"}
