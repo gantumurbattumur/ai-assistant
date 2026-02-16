@@ -1,31 +1,5 @@
-"""Main entry point for the Advanced RAG system"""
-from pprint import pprint
-from src.core import setup_environment
-from src.graph import create_graph
-
-
-def main():
-    """Run the Advanced RAG system"""
-    # Setup environment variables
-    setup_environment()
-    
-    # Create the graph
-    app = create_graph()
-    
-    # Run the workflow
-    inputs = {"question": "What is the future of AI Engineering?"}
-    
-    print("\n=== Running Advanced RAG System ===\n")
-    
-    for output in app.stream(inputs):
-        for key, value in output.items():
-            pprint(f"Node '{key}':")
-        pprint("\n---\n")
-    
-    # Print final generation
-    print("\n=== Final Answer ===\n")
-    pprint(value["generation"])
-
+"""Simple entry point for the Advanced RAG system"""
+from src.cli import app_cli
 
 if __name__ == "__main__":
-    main()
+    app_cli()

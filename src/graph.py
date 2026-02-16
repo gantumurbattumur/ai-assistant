@@ -8,7 +8,7 @@ from src.core import (
     create_retrieval_grader,
     create_question_rewriter,
     create_vectorstore,
-    web_search_tool,
+    get_web_search_tool,
 )
 
 
@@ -113,6 +113,7 @@ def create_graph():
     rag_chain = create_rag_chain()
     retrieval_grader = create_retrieval_grader()
     question_rewriter = create_question_rewriter()
+    web_search_tool = get_web_search_tool()
     
     # Create workflow
     workflow = StateGraph(GraphState)

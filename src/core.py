@@ -11,15 +11,30 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 from typing import List
 from typing_extensions import TypedDict
-
+from pathlib import Path
+from dotenv import load_dotenv
 
 # ========== Configuration ==========
 
 def setup_environment():
-    """Setup required environment variables"""
-    for key in ["OPENAI_API_KEY", "TAVILY_API_KEY"]:
-        if key not in os.environ:
-            os.environ[key] = getpass.getpass(f"{key}:")
+    """Load environment variables from .env file"""
+    # Find the project root (where .env should be)
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent  # Go up to advanced-rag/
+    env_file = project_root / ".env"
+    
+    # Load the .env file
+    load_dotenv(env_file)
+    
+    # Verify required keys are present
+    if not os.getenv("OPENAI_API_KEY"):
+        raise ValueError(
+            "OPENAI_API_KEY not found. Please create a .env file in the project root with:\n"
+            "OPENAI_API_KEY=your-key-here"
+        )
+    
+    if not os.getenv("TAVILY_API_KEY"):
+        print("Warning: TAVILY_API_KEY not found. Web search features may not work.")
 
 
 # ========== State Definition ==========
@@ -100,7 +115,10 @@ def create_question_rewriter():
 
 # ========== Tools ==========
 
-web_search_tool = TavilySearchResults(k=3)
+def get_web_search_tool():
+    """Get web search tool (lazy initialization)"""
+    from langchain_community.tools.tavily_search import TavilySearchResults
+    return TavilySearchResults(k=3)
 
 
 # ========== Retriever Setup ==========
