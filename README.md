@@ -1,6 +1,6 @@
-# Advanced RAG - AI Assistant
+# AI Assistant
 
-An advanced Retrieval-Augmented Generation (RAG) system that processes and queries books in PDF and EPUB formats. Built with LangGraph for adaptive query rewriting and web search fallback capabilities.
+AI Assitant with an advanced Retrieval-Augmented Generation (RAG) system that processes and queries books in PDF and EPUB formats. Built with LangGraph for adaptive query rewriting and web search fallback capabilities.
 
 ## 🏗️ Architecture Overview
 
@@ -218,18 +218,6 @@ Built with Typer and Rich for beautiful terminal UX:
   - LLM grading: ~1-2s
   - Web search (if triggered): ~1-2s
   - Answer generation: ~2-3s
-
-### **Cost Per Query**
-- **First run**: $0.50-$1.00 (embedding generation)
-- **Subsequent runs**: $0.005-$0.02 per query
-  - Embeddings: $0 (uses cached)
-  - LLM calls: ~$0.001-$0.005 each (grading, generation)
-  - Web search: ~$0.002 per query (if used)
-
-### **Storage Requirements**
-- **Source books**: Varies (user's collection)
-- **Vector index**: 15-50 MB for typical library (10-20 books)
-- **Scales linearly**: ~2-3 MB per book on average
 
 ## 📝 Notes
 
