@@ -15,6 +15,7 @@ from src.agents.researcher import researcher_node
 from src.agents.translator import translator_node
 from src.agents.summarizer import summarizer_node
 from src.agents.critic import critic_node
+from src.config import MODEL_NAME, get_openai_client
 
 # ── Agent registry ──────────────────────────────────────────────
 AGENT_NODES = {
@@ -56,13 +57,10 @@ def dispatcher_node(state: MultiAgentState) -> dict:
 
 def simple_answer_node(state: MultiAgentState) -> dict:
     """For simple queries where no specialist agent is needed."""
-    from openai import OpenAI
-
     query = state["query"]
-    client = OpenAI()
 
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+    resp = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0.7,
         messages=[
             {
@@ -128,12 +126,28 @@ def after_dispatcher(state: MultiAgentState) -> str:
 
 
 def human_check_node(state: MultiAgentState) -> dict:
-    """Placeholder for human-in-the-loop. In CLI mode the actual confirmation
-    happens in cli.py before resuming. Here we just clear the flag and continue."""
-    return {
-        "needs_human_confirm": False,
-        "human_confirm_message": "",
-    }
+    """Pause and ask the user for confirmation before continuing.
+
+    Uses langgraph.types.interrupt so the graph genuinely suspends.
+    The CLI resumes the graph with the user's answer via Command(resume=...).
+    If the user declines, should_stop is set to True to skip remaining agents.
+    """
+    from langgraph.types import interrupt
+
+    msg = state.get("human_confirm_message", "Continue?")
+    confirmed = interrupt({"message": msg, "options": ["yes", "no"]})
+
+    if str(confirmed).strip().lower() in ("yes", "y", ""):
+        return {
+            "needs_human_confirm": False,
+            "human_confirm_message": "",
+        }
+    else:
+        return {
+            "needs_human_confirm": False,
+            "human_confirm_message": "",
+            "should_stop": True,
+        }
 
 
 def after_human_check(state: MultiAgentState) -> str:
@@ -152,7 +166,13 @@ def after_human_check(state: MultiAgentState) -> str:
 # ── Build the graph ─────────────────────────────────────────────
 
 def create_multi_agent_graph():
-    """Create and compile the multi-agent LangGraph workflow."""
+    """Create and compile the multi-agent LangGraph workflow.
+
+    Uses an in-memory checkpointer so that interrupt() in human_check_node
+    can genuinely pause the graph and resume after user confirmation.
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+
     workflow = StateGraph(MultiAgentState)
 
     # Add nodes
@@ -196,4 +216,4 @@ def create_multi_agent_graph():
     workflow.add_edge("simple_answer", END)
     workflow.add_edge("finalizer", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=MemorySaver())

@@ -5,10 +5,9 @@ Standalone mode: search_web(query) → simple direct Tavily + SDK call.
 """
 from __future__ import annotations
 
-from openai import OpenAI
-
 from src.agents import MultiAgentState, AgentResult
 from src.core import get_web_search_tool
+from src.config import MODEL_NAME, get_openai_client
 
 
 # ── Standalone (simple direct call) ─────────────────────────────
@@ -30,9 +29,8 @@ def search_and_summarize(query: str) -> str:
         f"URL: {r.get('url', 'N/A')}\n{r.get('content', '')}" for r in results
     )
 
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+    resp = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0,
         messages=[
             {
@@ -61,10 +59,8 @@ def _build_search_query(query: str, prior_results: list[AgentResult]) -> str:
         None,
     )
     if librarian_result:
-        # Ask LLM to craft a targeted search query
-        client = OpenAI()
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+        resp = get_openai_client().chat.completions.create(
+            model=MODEL_NAME,
             temperature=0,
             messages=[
                 {
@@ -124,9 +120,8 @@ def researcher_node(state: MultiAgentState) -> dict:
     )
     urls = [r.get("url", "") for r in raw_results if r.get("url")]
 
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+    resp = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0,
         messages=[
             {

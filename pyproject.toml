@@ -1,6 +1,6 @@
 [project]
 name = "ai-assistant"
-version = "0.1.0"
+version = "0.2.0"
 description = "Your personal AI assistant - RAG, search, jokes, and more"
 readme = "README.md"
 requires-python = ">=3.12"

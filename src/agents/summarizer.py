@@ -5,18 +5,16 @@ Standalone mode: summarize_text(text) → simple direct SDK call.
 """
 from __future__ import annotations
 
-from openai import OpenAI
-
 from src.agents import MultiAgentState, AgentResult
+from src.config import MODEL_NAME, get_openai_client
 
 
 # ── Standalone (simple direct call) ─────────────────────────────
 
 def summarize_text(text: str) -> str:
     """Summarize text or fetched URL content. Simple direct SDK call."""
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+    resp = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0,
         messages=[
             {
@@ -57,17 +55,21 @@ def summarizer_node(state: MultiAgentState) -> dict:
         }
 
     if len(sections) == 1:
-        # Only one source → just pass through, no need to merge
+        # Only one source → just pass through, no need to merge.
+        # Find the actual content-producing result (not translator).
+        content_result = next(
+            (r for r in prior if r["content"] and r["agent"] != "translator"),
+            None,
+        )
         return {
-            "response": prior[-1]["content"] if prior else "",
+            "response": content_result["content"] if content_result else "",
             "agents_used": agents_used + ["📝 Summarizer (passthrough)"],
         }
 
     combined = "\n\n".join(sections)
 
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+    resp = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0,
         messages=[
             {

@@ -9,9 +9,8 @@ from __future__ import annotations
 import re
 from typing import List
 
-from openai import OpenAI
-
 from src.agents import MultiAgentState
+from src.config import MODEL_NAME, get_openai_client
 
 
 # ── Rule-based patterns ────────────────────────────────────────────
@@ -69,8 +68,6 @@ def _rule_based_plan(query: str) -> tuple[list[str], str] | None:
 
 def _llm_plan(query: str, language: str) -> tuple[list[str], str]:
     """Fall back to LLM to decide the plan."""
-    client = OpenAI()
-
     system = (
         "You are a task planner for a multi-agent AI system. "
         "Available agents:\n"
@@ -94,8 +91,8 @@ def _llm_plan(query: str, language: str) -> tuple[list[str], str]:
         "  start with translator and end with translator.\n"
     )
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    response = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0,
         response_format={"type": "json_object"},
         messages=[

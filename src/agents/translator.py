@@ -9,18 +9,16 @@ Standalone mode:
 """
 from __future__ import annotations
 
-from openai import OpenAI
-
 from src.agents import MultiAgentState, AgentResult
+from src.config import MODEL_NAME, get_openai_client
 
 
 # ── Standalone (simple direct call) ─────────────────────────────
 
 def translate_text(text: str, target_language: str = "English") -> str:
     """Translate text to target language. Simple direct SDK call."""
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+    resp = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0,
         messages=[
             {
@@ -43,20 +41,23 @@ def translator_node(state: MultiAgentState) -> dict:
     """Translate query or response depending on position in plan."""
     query = state["query"]
     plan = state.get("plan", [])
+    # current_step is the index of THIS invocation in the plan (not yet incremented
+    # by dispatcher — dispatcher increments AFTER the agent returns).
     current_step = state.get("current_step", 0)
     prior = state.get("agent_results", [])
     agents_used = state.get("agents_used", [])
 
-    client = OpenAI()
-
-    # Determine mode: input (first) or output (last)
-    translator_positions = [i for i, a in enumerate(plan) if a == "translator"]
-    is_input_mode = current_step == translator_positions[0] if translator_positions else True
+    # Determine mode: "input" if this is the FIRST translator in the plan,
+    # "output" if it's the LAST.  Use plan-index comparison, not current_step
+    # arithmetic, so the logic is explicit and immune to dispatcher ordering.
+    translator_indices = [i for i, a in enumerate(plan) if a == "translator"]
+    first_translator_idx = translator_indices[0] if translator_indices else 0
+    is_input_mode = current_step == first_translator_idx
 
     if is_input_mode:
         # ── Input mode: translate query to English ──────────────
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+        resp = get_openai_client().chat.completions.create(
+            model=MODEL_NAME,
             temperature=0,
             messages=[
                 {
@@ -94,8 +95,8 @@ def translator_node(state: MultiAgentState) -> dict:
             if content_results:
                 response_so_far = content_results[-1]["content"]
 
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+        resp = get_openai_client().chat.completions.create(
+            model=MODEL_NAME,
             temperature=0,
             messages=[
                 {

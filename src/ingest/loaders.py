@@ -3,7 +3,9 @@ import os
 from pathlib import Path
 from langchain_core.documents import Document
 
-FILE_PATH = "data/books/"
+# Resolved at import time relative to this file, so it works regardless of CWD.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+FILE_PATH = str(_PROJECT_ROOT / "data" / "books") + "/"
 
 SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".docx", ".pptx", ".xlsx", ".html", ".md"}
 

@@ -254,6 +254,11 @@ def ask(
         graph = create_multi_agent_graph()
         progress.remove_task(task)
 
+    # Each run needs a unique thread_id so the MemorySaver checkpointer
+    # can store and resume state if a human_check interrupt fires.
+    import uuid
+    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+
     # Initial state
     initial_state = {
         "query": query,
@@ -270,47 +275,57 @@ def ask(
         "should_stop": False,
     }
 
-    # Stream each step
-    last_state = None
-    for step in graph.stream(initial_state):
-        for node_name, state in step.items():
-            # Show coordinator plan
-            if node_name == "coordinator" and state.get("plan"):
-                plan_str = " → ".join(state["plan"])
-                console.print(f"\n  [bold]🎯 Plan:[/] {plan_str}")
-                if verbose and state.get("plan_reasoning"):
-                    console.print(f"  [dim]   Reasoning: {state['plan_reasoning']}[/]")
-                console.print()
+    def _stream_until_interrupt(input_or_command):
+        """Stream steps and return (last_state, interrupt_value) — interrupt_value
+        is non-None when the graph has paused for human confirmation."""
+        from langgraph.types import Command
 
-            # Show which agent is working
-            elif node_name == "dispatcher":
-                # Figure out which agent just ran from agents_used
-                used = state.get("agents_used", [])
-                if used:
-                    latest = used[-1]
-                    console.print(f"  {latest} working...")
+        accumulated = {}
+        for step in graph.stream(input_or_command, config=config):  # type: ignore[arg-type]
+            # LangGraph surfaces interrupts as a special __interrupt__ key
+            if "__interrupt__" in step:
+                interrupt_data = step["__interrupt__"][0]
+                return accumulated, interrupt_data.value
+            for node_name, state in step.items():
+                # Show coordinator plan
+                if node_name == "coordinator" and state.get("plan"):
+                    plan_str = " → ".join(state["plan"])
+                    console.print(f"\n  [bold]🎯 Plan:[/] {plan_str}")
+                    if verbose and state.get("plan_reasoning"):
+                        console.print(f"  [dim]   Reasoning: {state['plan_reasoning']}[/]")
+                    console.print()
 
-                    if verbose:
-                        results = state.get("agent_results", [])
-                        if results:
-                            last_result = results[-1]
-                            conf = last_result.get("confidence", "")
-                            if conf:
-                                console.print(f"    [dim]confidence: {conf}[/]")
-                            sources = last_result.get("sources", [])
-                            if sources:
+                # Show which agent is working
+                elif node_name == "dispatcher":
+                    used = state.get("agents_used", [])
+                    if used:
+                        latest = used[-1]
+                        console.print(f"  {latest} working...")
+                        if verbose:
+                            results = state.get("agent_results", [])
+                            if results:
+                                last_result = results[-1]
+                                conf = last_result.get("confidence", "")
+                                if conf:
+                                    console.print(f"    [dim]confidence: {conf}[/]")
+                                sources = last_result.get("sources", [])
                                 for s in sources[:3]:
                                     console.print(f"    [dim]source: {s}[/]")
 
-            # Handle human confirmation (Option C / Q6)
-            elif node_name == "human_check":
-                msg = state.get("human_confirm_message", "")
-                if msg:
-                    # This is where the actual human-in-the-loop happens
-                    # The graph paused at human_check node
-                    pass  # Confirmation handled via graph continuation
+                accumulated = {**accumulated, **state}
+        return accumulated, None
 
-            last_state = {**(last_state or {}), **state}
+    # ── Run, handling any human-confirmation interrupts ─────────
+    from langgraph.types import Command
+
+    last_state, interrupt_val = _stream_until_interrupt(initial_state)
+
+    while interrupt_val is not None:
+        msg = interrupt_val.get("message", "Continue?") if isinstance(interrupt_val, dict) else str(interrupt_val)
+        console.print(f"\n[bold yellow]❓ {msg}[/]")
+        confirmed = typer.confirm("  Proceed?", default=True)
+        answer = "yes" if confirmed else "no"
+        last_state, interrupt_val = _stream_until_interrupt(Command(resume=answer))
 
     # ── Display final answer ────────────────────────────────────
     if last_state and last_state.get("response"):

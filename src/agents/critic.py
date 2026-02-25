@@ -6,9 +6,8 @@ Two jobs:
 """
 from __future__ import annotations
 
-from openai import OpenAI
-
 from src.agents import MultiAgentState, AgentResult
+from src.config import MODEL_NAME, get_openai_client
 
 
 def critic_node(state: MultiAgentState) -> dict:
@@ -34,9 +33,8 @@ def critic_node(state: MultiAgentState) -> dict:
         for name, text in agent_outputs.items()
     )
 
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+    resp = get_openai_client().chat.completions.create(
+        model=MODEL_NAME,
         temperature=0,
         messages=[
             {
