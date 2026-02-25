@@ -47,6 +47,15 @@ _PATTERNS: list[tuple[re.Pattern, list[str], str]] = [
     ),
 ]
 
+# ── Task-detection helper (imported from tasks module) ──────────
+def _is_task_query(query: str) -> bool:
+    """Check if the query is a macOS task (alarm, calendar, note)."""
+    try:
+        from src.tasks.macos_agent import matches_any_task
+        return matches_any_task(query)
+    except ImportError:
+        return False
+
 # Non-English detection (simple heuristic: if >40% non-ASCII → non-English)
 _NON_ASCII_THRESHOLD = 0.30
 
@@ -60,6 +69,14 @@ def _detect_language(text: str) -> str:
 
 def _rule_based_plan(query: str) -> tuple[list[str], str] | None:
     """Try to match a rule. Returns (plan, reasoning) or None."""
+    # Check task intents first (alarm, calendar, note)
+    if _is_task_query(query):
+        # Hybrid: if summarize + calendar → task_agent then summarizer
+        q_low = query.lower()
+        if any(kw in q_low for kw in ("summarize", "summary", "give me the gist")):
+            return ["task_agent", "summarizer"], "Task action + summarization"
+        return ["task_agent"], "macOS task detected"
+
     for pattern, plan, reasoning in _PATTERNS:
         if pattern.search(query):
             return plan, reasoning
@@ -75,7 +92,8 @@ def _llm_plan(query: str, language: str) -> tuple[list[str], str]:
         "  - researcher: searches the live web for current information\n"
         "  - translator: translates text between languages\n"
         "  - summarizer: condenses and merges information from multiple sources\n"
-        "  - critic: reviews answers for quality, contradictions, and accuracy\n\n"
+        "  - critic: reviews answers for quality, contradictions, and accuracy\n"
+        "  - task_agent: performs macOS tasks (set alarms/reminders, get calendar events, write notes)\n\n"
         "Given the user's query, return ONLY a JSON object with two keys:\n"
         '  "plan": list of agent names in execution order\n'
         '  "reasoning": one-sentence explanation\n\n'
@@ -108,7 +126,7 @@ def _llm_plan(query: str, language: str) -> tuple[list[str], str]:
     reasoning = result.get("reasoning", "LLM-planned")
 
     # Validate agent names
-    valid = {"librarian", "researcher", "translator", "summarizer", "critic"}
+    valid = {"librarian", "researcher", "translator", "summarizer", "critic", "task_agent"}
     plan = [a for a in plan if a in valid]
 
     return plan, reasoning

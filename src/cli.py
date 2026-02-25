@@ -509,6 +509,54 @@ def translate(
 
 
 # ================================================================
+# task  –  macOS task subcommands (alarm, calendar, note)
+# ================================================================
+task_cli = typer.Typer(help="macOS tasks (alarms, calendar, notes)")
+app_cli.add_typer(task_cli, name="task")
+
+
+@task_cli.command("alarm")
+def task_alarm(
+    time: str = typer.Argument(..., help="When: '5 minutes', '14:30', '2:30 PM'"),
+    title: str = typer.Option("AI Assistant Alarm", "--title", "-t", help="Reminder title"),
+):
+    """⏰ Set an alarm / reminder in macOS Reminders"""
+    from src.tasks.macos_agent import set_alarm
+
+    console.print(Panel(f"[bold blue]⏰ Setting alarm:[/] {time}", border_style="blue"))
+    with console.status("[bold green]Creating reminder..."):
+        result = set_alarm(time, title)
+    console.print(result)
+
+
+@task_cli.command("calendar")
+def task_calendar(
+    date: str = typer.Argument("today", help="Date: 'today', 'tomorrow', 'YYYY-MM-DD'"),
+):
+    """📅 Get calendar events for a date"""
+    from src.tasks.macos_agent import get_calendar_events
+
+    console.print(Panel(f"[bold blue]📅 Fetching events for:[/] {date}", border_style="blue"))
+    with console.status("[bold green]Reading calendar..."):
+        result = get_calendar_events(date)
+    console.print(result)
+
+
+@task_cli.command("note")
+def task_note(
+    content: str = typer.Argument(..., help="Note content"),
+    title: str = typer.Option("", "--title", "-t", help="Note title"),
+):
+    """📝 Create a note in macOS Notes"""
+    from src.tasks.macos_agent import write_note
+
+    console.print(Panel("[bold blue]📝 Creating note...[/]", border_style="blue"))
+    with console.status("[bold green]Writing note..."):
+        result = write_note(content, title)
+    console.print(result)
+
+
+# ================================================================
 # info  –  Show available commands
 # ================================================================
 @app_cli.command("info")
@@ -527,6 +575,11 @@ def info():
         f"  [cyan]ai summarize[/]  [dim]\"..\"[/]       📝 Summarizer — summarize text or URL\n"
         f"  [cyan]ai translate[/]  [dim]\"..\"[/]       🌍 Translator — translate text\n"
         f"  [cyan]ai rag ask[/]  [dim]\"..\"[/]         📚 Librarian — search your books\n\n"
+        f"[bold]🖥️  macOS Tasks:[/]\n\n"
+        f"  [cyan]ai task alarm[/]  [dim]\"5 min\"[/]    ⏰ Set alarm/reminder\n"
+        f"  [cyan]ai task calendar[/]  [dim]today[/]    📅 Get calendar events\n"
+        f"  [cyan]ai task note[/]  [dim]\"..\"[/]        📝 Create a note\n"
+        f"  [dim](Also via: ai ask \"set alarm in 5 minutes\")[/]\n\n"
         f"[bold]⚡ Utilities:[/]\n\n"
         f"  [cyan]ai quick[/]  [dim]\"..\"[/]           ⚡ Fast LLM answer (no agents)\n"
         f"  [cyan]ai joke[/]                  😂 Random joke\n"

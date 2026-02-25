@@ -1,7 +1,7 @@
 [project]
 name = "ai-assistant"
-version = "0.2.0"
-description = "Your personal AI assistant - RAG, search, jokes, and more"
+version = "0.3.0"
+description = "Your personal AI assistant - RAG, search, jokes, macOS tasks, and more"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

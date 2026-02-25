@@ -15,6 +15,7 @@ from src.agents.researcher import researcher_node
 from src.agents.translator import translator_node
 from src.agents.summarizer import summarizer_node
 from src.agents.critic import critic_node
+from src.tasks.macos_agent import task_agent_node
 from src.config import MODEL_NAME, get_openai_client
 
 # ── Agent registry ──────────────────────────────────────────────
@@ -24,6 +25,7 @@ AGENT_NODES = {
     "translator": translator_node,
     "summarizer": summarizer_node,
     "critic": critic_node,
+    "task_agent": task_agent_node,
 }
 
 
