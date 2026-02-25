@@ -17,15 +17,31 @@ from dotenv import load_dotenv
 # ========== Configuration ==========
 
 def setup_environment():
-    """Load environment variables from .env file"""
-    # Find the project root (where .env should be)
-    current_file = Path(__file__)
-    project_root = current_file.parent.parent  # Go up to advanced-rag/
-    env_file = project_root / ".env"
-    
-    # Load the .env file
-    load_dotenv(env_file)
-    
+    """Load environment variables from .env file.
+
+    Search order:
+      1. Current working directory (.env)
+      2. Project root relative to this file (local dev)
+      3. ~/.config/ai-assistant/.env  (recommended for installed tool)
+      4. ~/.env  (home directory fallback)
+    """
+    current_file = Path(__file__).resolve()
+    project_root = current_file.parent.parent
+
+    candidates = [
+        Path.cwd() / ".env",
+        project_root / ".env",
+        Path.home() / ".config" / "ai-assistant" / ".env",
+        Path.home() / ".env",
+    ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            load_dotenv(candidate)
+            break
+    else:
+        load_dotenv()  # let python-dotenv search by itself as last resort
+
     # Verify required keys are present
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError(
