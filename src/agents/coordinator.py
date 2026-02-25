@@ -69,13 +69,16 @@ def _detect_language(text: str) -> str:
 
 def _rule_based_plan(query: str) -> tuple[list[str], str] | None:
     """Try to match a rule. Returns (plan, reasoning) or None."""
-    # Check task intents first (alarm, calendar, note)
+    # Check task intents first (alarm, calendar, note, timer, stopwatch, world clock)
     if _is_task_query(query):
-        # Hybrid: if summarize + calendar → task_agent then summarizer
         q_low = query.lower()
+        # Hybrid: "summarize my calendar" → get events then summarize them
         if any(kw in q_low for kw in ("summarize", "summary", "give me the gist")):
             return ["task_agent", "summarizer"], "Task action + summarization"
-        return ["task_agent"], "macOS task detected"
+        # Hybrid: "remind me about <book topic>" → librarian context then reminder
+        if any(kw in q_low for kw in ("from the book", "my book", "my document")):
+            return ["librarian", "task_agent"], "Book context + task action"
+        return ["task_agent"], "Task/action detected"
 
     for pattern, plan, reasoning in _PATTERNS:
         if pattern.search(query):
@@ -93,7 +96,8 @@ def _llm_plan(query: str, language: str) -> tuple[list[str], str]:
         "  - translator: translates text between languages\n"
         "  - summarizer: condenses and merges information from multiple sources\n"
         "  - critic: reviews answers for quality, contradictions, and accuracy\n"
-        "  - task_agent: performs macOS tasks (set alarms/reminders, get calendar events, write notes)\n\n"
+        "  - task_agent: performs actions — macOS tasks (reminders/alarms, calendar get/create, notes), "
+        "timer/countdown, stopwatch, world clock (time in other cities)\n\n"
         "Given the user's query, return ONLY a JSON object with two keys:\n"
         '  "plan": list of agent names in execution order\n'
         '  "reasoning": one-sentence explanation\n\n'

@@ -1,7 +1,7 @@
 [project]
 name = "ai-assistant"
-version = "0.3.0"
-description = "Your personal AI assistant - RAG, search, jokes, macOS tasks, and more"
+version = "0.4.0"
+description = "Your personal AI assistant - RAG, search, macOS automation, timer, world clock, and more"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -30,6 +30,8 @@ dev = [
     "black>=24.0.0",
     "ruff>=0.6.0",
 ]
+# pytz fallback for world clock on older Pythons (zoneinfo is stdlib ≥3.9)
+tz = ["pytz>=2024.1"]
 
 [project.scripts]
 ai = "src.cli:app_cli"
