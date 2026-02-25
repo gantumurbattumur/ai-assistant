@@ -94,6 +94,19 @@ def rag_ask(
                 for i, doc in enumerate(last_state["documents"][:5], 1):
                     source = doc.metadata.get("source", "Unknown")
                     console.print(f"  {i}. {source}")
+
+            # If some (but not the majority) docs were irrelevant, offer a web search follow-up
+            irrelevant = last_state.get("irrelevant_count", 0)
+            total = last_state.get("total_retrieved", 0)
+            web_search_done = last_state.get("web_search", "No") == "Yes"
+            if irrelevant > 0 and not web_search_done:
+                console.print(
+                    f"\n[yellow]⚠️  {irrelevant}/{total} retrieved document(s) were not relevant "
+                    f"to your question. The answer above is based on the {total - irrelevant} "
+                    f"relevant document(s) found.[/]"
+                )
+                if typer.confirm("🌐 Would you like to supplement with a web search?", default=False):
+                    _run_web_supplemented_rag(question, last_state.get("generation", ""), rag_app)
         else:
             console.print("[red]❌ No answer generated.[/]")
     else:
@@ -104,6 +117,54 @@ def rag_ask(
             border_style="green",
             padding=(1, 2),
         ))
+
+        irrelevant = state.get("irrelevant_count", 0)
+        total = state.get("total_retrieved", 0)
+        web_search_done = state.get("web_search", "No") == "Yes"
+        if irrelevant > 0 and not web_search_done:
+            console.print(
+                f"\n[yellow]⚠️  {irrelevant}/{total} retrieved document(s) were not relevant "
+                f"to your question. The answer above is based on the {total - irrelevant} "
+                f"relevant document(s) found.[/]"
+            )
+            if typer.confirm("🌐 Would you like to supplement with a web search?", default=False):
+                _run_web_supplemented_rag(question, state.get("generation", ""), rag_app)
+
+
+def _run_web_supplemented_rag(question: str, local_answer: str, rag_app):
+    """Run a web-supplemented RAG pass after the user opts in."""
+    from src.core import (
+        create_question_rewriter,
+        get_web_search_tool,
+        create_rag_chain,
+    )
+    from langchain_core.documents import Document
+
+    console.print("\n[bold cyan]🌐 Searching the web...[/]")
+
+    try:
+        rewriter = create_question_rewriter()
+        web_tool = get_web_search_tool()
+        rag_chain = create_rag_chain()
+
+        better_question = rewriter.invoke({"question": question})
+        docs = web_tool.invoke({"query": better_question})
+        web_content = "\n".join(d["content"] for d in docs)
+        web_doc = Document(page_content=web_content)
+
+        generation = rag_chain.invoke({
+            "context": [web_doc],
+            "question": question,
+        })
+
+        console.print(Panel(
+            Markdown(generation),
+            title="[bold green]✅ Web-Supplemented Answer[/]",
+            border_style="green",
+            padding=(1, 2),
+        ))
+    except Exception as e:
+        console.print(f"[red]❌ Web search failed: {e}[/]")
 
 
 @rag_cli.command("rebuild")
@@ -160,32 +221,143 @@ def index_status():
 
 
 # ================================================================
-# ask  –  Quick LLM question (no RAG, no documents)
+# ask  –  THE main command. Coordinator routes to the right agents.
 # ================================================================
 @app_cli.command("ask")
 def ask(
-    question: str = typer.Argument(..., help="Ask anything"),
+    query: str = typer.Argument(..., help="Ask anything — the AI figures out the rest"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed agent steps"),
 ):
-    """Quick ask using LLM (no documents needed)"""
+    """
+    🤖 Ask anything. The coordinator automatically picks the right agents.
+
+    Examples:\n
+      ai ask "What does my book say about stoicism?"\n
+      ai ask "Is my book's claim about climate change still accurate?"\n
+      ai ask "Summarize https://example.com and compare with my books"\n
+      ai ask "Translate 侘寂 and explain its philosophy"\n
+    """
     from src.core import setup_environment
-    from langchain_openai import ChatOpenAI
-    from langchain_core.prompts import ChatPromptTemplate
+    from src.agents.graph import create_multi_agent_graph
 
     setup_environment()
 
-    console.print(Panel(f"[bold blue] Question:[/] {question}", border_style="blue"))
+    console.print(Panel(f"[bold cyan]🤖 Query:[/] {query}", border_style="cyan"))
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Coordinator is planning...", total=None)
+        graph = create_multi_agent_graph()
+        progress.remove_task(task)
+
+    # Initial state
+    initial_state = {
+        "query": query,
+        "language": "",
+        "translated_query": "",
+        "plan": [],
+        "plan_reasoning": "",
+        "current_step": 0,
+        "agent_results": [],
+        "response": "",
+        "agents_used": [],
+        "needs_human_confirm": False,
+        "human_confirm_message": "",
+        "should_stop": False,
+    }
+
+    # Stream each step
+    last_state = None
+    for step in graph.stream(initial_state):
+        for node_name, state in step.items():
+            # Show coordinator plan
+            if node_name == "coordinator" and state.get("plan"):
+                plan_str = " → ".join(state["plan"])
+                console.print(f"\n  [bold]🎯 Plan:[/] {plan_str}")
+                if verbose and state.get("plan_reasoning"):
+                    console.print(f"  [dim]   Reasoning: {state['plan_reasoning']}[/]")
+                console.print()
+
+            # Show which agent is working
+            elif node_name == "dispatcher":
+                # Figure out which agent just ran from agents_used
+                used = state.get("agents_used", [])
+                if used:
+                    latest = used[-1]
+                    console.print(f"  {latest} working...")
+
+                    if verbose:
+                        results = state.get("agent_results", [])
+                        if results:
+                            last_result = results[-1]
+                            conf = last_result.get("confidence", "")
+                            if conf:
+                                console.print(f"    [dim]confidence: {conf}[/]")
+                            sources = last_result.get("sources", [])
+                            if sources:
+                                for s in sources[:3]:
+                                    console.print(f"    [dim]source: {s}[/]")
+
+            # Handle human confirmation (Option C / Q6)
+            elif node_name == "human_check":
+                msg = state.get("human_confirm_message", "")
+                if msg:
+                    # This is where the actual human-in-the-loop happens
+                    # The graph paused at human_check node
+                    pass  # Confirmation handled via graph continuation
+
+            last_state = {**(last_state or {}), **state}
+
+    # ── Display final answer ────────────────────────────────────
+    if last_state and last_state.get("response"):
+        console.print(Panel(
+            Markdown(last_state["response"]),
+            title="[bold green]✅ Answer[/]",
+            border_style="green",
+            padding=(1, 2),
+        ))
+
+        if verbose:
+            used = last_state.get("agents_used", [])
+            if used:
+                console.print(f"\n  [dim]Agents used: {' → '.join(used)}[/]")
+    else:
+        console.print("[red]❌ No answer generated.[/]")
+
+
+# ================================================================
+# quick  –  Old "ask" — Simple direct LLM question (no agents)
+# ================================================================
+@app_cli.command("quick")
+def quick(
+    question: str = typer.Argument(..., help="Ask a quick question"),
+):
+    """⚡ Quick LLM answer (no agents, no documents, just fast)"""
+    from src.core import setup_environment
+    from openai import OpenAI
+
+    setup_environment()
+
+    console.print(Panel(f"[bold blue]⚡ Quick:[/] {question}", border_style="blue"))
 
     with console.status("[bold green]Thinking..."):
-        llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful, concise AI assistant. Answer clearly and briefly."),
-            ("human", "{question}"),
-        ])
-        chain = prompt | llm
-        response = chain.invoke({"question": question})
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.7,
+            messages=[
+                {"role": "system", "content": "You are a helpful, concise AI assistant. Answer clearly and briefly."},
+                {"role": "user", "content": question},
+            ],
+        )
+        answer = resp.choices[0].message.content or ""
 
     console.print(Panel(
-        Markdown(response.content),
+        Markdown(answer),
         title="[bold green]✅ Answer[/]",
         border_style="green",
         padding=(1, 2),
@@ -193,25 +365,29 @@ def ask(
 
 
 # ================================================================
-# search  –  Web search via Tavily
+# search  –  Direct single-agent: Researcher
 # ================================================================
 @app_cli.command("search")
 def search(
     query: str = typer.Argument(..., help="Search query"),
     num: int = typer.Option(3, "--num", "-n", help="Number of results"),
 ):
-    """🔍 Search the web"""
-    from src.core import setup_environment, get_web_search_tool
+    """🔍 Search the web (Researcher agent — single task)"""
+    from src.core import setup_environment
+    from src.agents.researcher import search_web
 
     setup_environment()
 
-    console.print(Panel(f"[bold blue] Searching:[/] {query}", border_style="blue"))
+    console.print(Panel(f"[bold blue]🔍 Searching:[/] {query}", border_style="blue"))
 
-    with console.status("[bold green]Searching the web..."):
-        tool = get_web_search_tool()
-        results = tool.invoke({"query": query})
+    with console.status("[bold green]Researcher searching the web..."):
+        results = search_web(query, num_results=num)
 
-    for i, doc in enumerate(results[:num], 1):
+    if not results:
+        console.print("[yellow]No results found.[/]")
+        return
+
+    for i, doc in enumerate(results, 1):
         url = doc.get("url", "")
         content = doc.get("content", "No content")
         console.print(Panel(
@@ -246,16 +422,15 @@ def joke():
 
 
 # ================================================================
-# summarize  –  Summarize text or a URL
+# summarize  –  Direct single-agent: Summarizer
 # ================================================================
 @app_cli.command("summarize")
 def summarize(
     text: str = typer.Argument(..., help="Text or URL to summarize"),
 ):
-    """Summarize text or a webpage"""
+    """📝 Summarize text or a webpage (Summarizer agent — single task)"""
     from src.core import setup_environment
-    from langchain_openai import ChatOpenAI
-    from langchain_core.prompts import ChatPromptTemplate
+    from src.agents.summarizer import summarize_text
 
     setup_environment()
 
@@ -268,7 +443,6 @@ def summarize(
             resp = httpx.get(text, timeout=10.0, follow_redirects=True)
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(resp.text, "html.parser")
-            # Remove script and style elements
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
             content = soup.get_text(separator="\n", strip=True)[:8000]
@@ -276,21 +450,13 @@ def summarize(
             console.print(f"[red]Failed to fetch URL: {e}[/]")
             raise typer.Exit(1)
 
-    console.print(Panel("[bold blue] Summarizing...[/]", border_style="blue"))
+    console.print(Panel("[bold blue]📝 Summarizing...[/]", border_style="blue"))
 
-    with console.status("[bold green]Generating summary..."):
-        llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system",
-             "You are a summarization expert. Provide a clear, concise summary "
-             "with key points as bullet points."),
-            ("human", "Summarize the following:\n\n{content}"),
-        ])
-        chain = prompt | llm
-        response = chain.invoke({"content": content})
+    with console.status("[bold green]Summarizer working..."):
+        result = summarize_text(content)
 
     console.print(Panel(
-        Markdown(response.content),
+        Markdown(result),
         title="[bold green]📝 Summary[/]",
         border_style="green",
         padding=(1, 2),
@@ -298,17 +464,16 @@ def summarize(
 
 
 # ================================================================
-# translate  –  Translate text
+# translate  –  Direct single-agent: Translator
 # ================================================================
 @app_cli.command("translate")
 def translate(
     text: str = typer.Argument(..., help="Text to translate"),
     to: str = typer.Option("English", "--to", "-t", help="Target language"),
 ):
-    """Translate text to another language"""
+    """🌍 Translate text (Translator agent — single task)"""
     from src.core import setup_environment
-    from langchain_openai import ChatOpenAI
-    from langchain_core.prompts import ChatPromptTemplate
+    from src.agents.translator import translate_text
 
     setup_environment()
 
@@ -317,20 +482,12 @@ def translate(
         border_style="blue",
     ))
 
-    with console.status("[bold green]Translating..."):
-        llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system",
-             "You are a professional translator. Translate the given text to {language}. "
-             "Only output the translation, nothing else."),
-            ("human", "{text}"),
-        ])
-        chain = prompt | llm
-        response = chain.invoke({"text": text, "language": to})
+    with console.status("[bold green]Translator working..."):
+        result = translate_text(text, target_language=to)
 
     console.print(Panel(
-        response.content,
-        title=f"[bold green]{to}[/]",
+        result,
+        title=f"[bold green]🌍 {to}[/]",
         border_style="green",
         padding=(1, 2),
     ))
@@ -348,17 +505,20 @@ def info():
         f"[bold cyan]🤖 AI Assistant[/] v{__version__}\n\n"
         f"  Python:   {sys.version.split()[0]}\n"
         f"  Platform: {sys.platform}\n\n"
-        f"[bold]Available Commands:[/]\n\n"
-        f"  [cyan]ai ask[/]  [dim]\"..\"[/]           💬 Quick LLM question\n"
-        f"  [cyan]ai rag ask[/]  [dim]\"..\"[/]       📚 Ask about your books (RAG)\n"
-        f"  [cyan]ai rag status[/]           📊 Show index statistics\n"
-        f"  [cyan]ai rag rebuild[/]          🔄 Rebuild vector index\n"
-        f"  [cyan]ai search[/]  [dim]\"..\"[/]        🔍 Search the web\n"
-        f"  [cyan]ai joke[/]                😂 Get a random joke\n"
-        f"  [cyan]ai summarize[/]  [dim]\"..\"[/]     📝 Summarize text or URL\n"
-        f"  [cyan]ai translate[/]  [dim]\"..\"[/]     🌍 Translate text\n"
-        f"  [cyan]ai info[/]                ℹ️  This screen\n"
-        f"  [cyan]ai --version[/]           📦 Show version\n",
+        f"[bold]🤖 Smart (Multi-Agent Coordinator):[/]\n\n"
+        f"  [cyan]ai ask[/]  [dim]\"anything\"[/]      Coordinator picks the right agents automatically\n\n"
+        f"[bold]🔧 Single-Agent Commands:[/]\n\n"
+        f"  [cyan]ai search[/]  [dim]\"..\"[/]          🔍 Researcher — search the web\n"
+        f"  [cyan]ai summarize[/]  [dim]\"..\"[/]       📝 Summarizer — summarize text or URL\n"
+        f"  [cyan]ai translate[/]  [dim]\"..\"[/]       🌍 Translator — translate text\n"
+        f"  [cyan]ai rag ask[/]  [dim]\"..\"[/]         📚 Librarian — search your books\n\n"
+        f"[bold]⚡ Utilities:[/]\n\n"
+        f"  [cyan]ai quick[/]  [dim]\"..\"[/]           ⚡ Fast LLM answer (no agents)\n"
+        f"  [cyan]ai joke[/]                  😂 Random joke\n"
+        f"  [cyan]ai rag status[/]            📊 Index statistics\n"
+        f"  [cyan]ai rag rebuild[/]           🔄 Rebuild index\n"
+        f"  [cyan]ai info[/]                  ℹ️  This screen\n"
+        f"  [cyan]ai --version[/]             📦 Version\n",
         title="[bold blue]ℹ️  System Info[/]",
         border_style="blue",
     ))

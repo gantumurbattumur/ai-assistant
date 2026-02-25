@@ -23,16 +23,23 @@ def retrieve(state, retriever):
 
 
 def grade_documents(state, retrieval_grader):
-    """Grade document relevance to the question"""
+    """Grade document relevance to the question.
+
+    Web search is only triggered when the *majority* of retrieved documents
+    are irrelevant (irrelevant_count > relevant_count).  When some documents
+    are irrelevant but the majority are still relevant, the graph generates
+    from local docs and the CLI can offer the user an optional web follow-up.
+    """
     print("---CHECK DOCUMENTS RELEVANCE TO QUESTION---")
     question = state["question"]
     documents = state["documents"]
-    
+
     filtered_docs = []
-    web_search = "No"
+    irrelevant_count = 0
+
     for doc in documents:
         score = retrieval_grader.invoke({
-            "question": question, 
+            "question": question,
             "document": doc.page_content
         })
         grade = score.binary_score
@@ -41,12 +48,26 @@ def grade_documents(state, retrieval_grader):
             filtered_docs.append(doc)
         else:
             print("---GRADE: DOCUMENT NOT RELEVANT---")
-            web_search = "Yes"
-    
+            irrelevant_count += 1
+
+    total = len(documents)
+    # Only force web search when the majority of docs are irrelevant
+    # (i.e. more irrelevant than relevant)
+    if irrelevant_count > total / 2:
+        print(f"---MAJORITY IRRELEVANT ({irrelevant_count}/{total}): WILL SEARCH WEB---")
+        web_search = "Yes"
+    elif irrelevant_count > 0:
+        print(f"---SOME IRRELEVANT ({irrelevant_count}/{total}): GENERATING FROM LOCAL DOCS---")
+        web_search = "No"
+    else:
+        web_search = "No"
+
     return {
         "documents": filtered_docs,
         "question": question,
-        "web_search": web_search
+        "web_search": web_search,
+        "irrelevant_count": irrelevant_count,
+        "total_retrieved": total,
     }
 
 

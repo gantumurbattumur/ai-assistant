@@ -42,17 +42,21 @@ def setup_environment():
 class GraphState(TypedDict):
     """
     Represents the state of the graph
-    
+
     Attributes:
         question: User question
         generation: LLM generation
-        web_search: Whether to search, 'yes' or 'no'
+        web_search: Whether to search, 'Yes' or 'No'
         documents: List of documents retrieved
+        irrelevant_count: Number of irrelevant docs found during grading
+        total_retrieved: Total docs retrieved before filtering
     """
     question: str
     generation: str
     web_search: str
     documents: List[str]
+    irrelevant_count: int
+    total_retrieved: int
 
 
 # ========== Data Models ==========
@@ -123,61 +127,83 @@ def get_web_search_tool():
 
 # ========== Retriever Setup ==========
 
+# Module-level cache — avoids reloading the vectorstore on every call.
+_retriever = None
+
+
 def create_vectorstore(force_rebuild: bool = False):
     """
-    Load or create a persistent vectorstore
-    
+    Load or create a persistent vectorstore.
+
+    Uses a module-level cache so subsequent calls return the same retriever
+    without reloading Chroma or re-embedding documents.
+
     Args:
-        force_rebuild: If True, rebuild the index from scratch
-        
+        force_rebuild: If True, drop the cache and rebuild the index from scratch.
+
     Returns:
-        retriever: Vector store retriever
+        retriever: VectorStore retriever backed by the Chroma persistent store.
     """
+    global _retriever
+
+    # Return cached retriever unless a rebuild is requested
+    if _retriever is not None and not force_rebuild:
+        return _retriever
+
     from src.ingest.loaders import load_all_books
-    
+
     # Persistent storage location
     project_root = Path(__file__).parent.parent
     persist_dir = project_root / "chroma_db"
-    
-    # Check if index already exists
+
+    if force_rebuild:
+        # Clear the in-memory cache so we rebuild cleanly
+        _retriever = None
+
+    # Check if index already exists on disk
     if persist_dir.exists() and not force_rebuild:
         print("Loading existing vectorstore...")
         vectorstore = Chroma(
             collection_name="rag-chroma",
             embedding_function=OpenAIEmbeddings(),
-            persist_directory=str(persist_dir)
+            persist_directory=str(persist_dir),
         )
         print(f"✅ Loaded {vectorstore._collection.count()} existing chunks")
-        return vectorstore.as_retriever()
-    
+        _retriever = vectorstore.as_retriever()
+        return _retriever
+
     # Build from scratch
     print("Building vectorstore from documents...")
     docs = load_all_books()
-    
+
     if not docs:
         raise ValueError("No documents found. Add PDF/EPUB files to data/books/")
-    
-    print(f"Loaded {len(docs)} documents")
-    
-    # Split documents into chunks
+
+    print(f"Loaded {len(docs)} elements")
+
+    # Split text/heading chunks; keep tables and image_descriptions as-is
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=250, 
-        chunk_overlap=0
+        chunk_size=250,
+        chunk_overlap=0,
     )
-    
-    doc_splits = text_splitter.create_documents(
-        [doc.page_content for sublist in docs for doc in sublist]
-    )
-    print(f"Split into {len(doc_splits)} chunks")
+
+    splittable = [d for d in docs if d.metadata.get("content_type") in ("text", "heading", None)]
+    preserved  = [d for d in docs if d.metadata.get("content_type") in ("table", "image_description")]
+
+    split_chunks = text_splitter.split_documents(splittable)
+    doc_splits   = split_chunks + preserved
+
+    print(f"Split into {len(doc_splits)} chunks ({len(preserved)} tables/images kept whole)")
     print("Generating embeddings (this may take a minute)...")
-    
+
     # Create persistent vectorstore
     vectorstore = Chroma.from_documents(
         documents=doc_splits,
         collection_name="rag-chroma",
         embedding=OpenAIEmbeddings(),
-        persist_directory=str(persist_dir)
+        persist_directory=str(persist_dir),
     )
-    
+
     print(f"✅ Vectorstore saved to {persist_dir}")
-    return vectorstore.as_retriever()
+    _retriever = vectorstore.as_retriever()
+    return _retriever
